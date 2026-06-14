@@ -1,0 +1,40 @@
+apiVersion: v2
+name: centreon
+description: |
+  Centreon 24.10 monitoring platform. Centreon Web, Engine, Broker (SQL +
+  RRD) and Gorgone run as a single multi-container StatefulSet ; MariaDB
+  is consumed as a Bitnami sub-chart. Compatible with vanilla Kubernetes
+  and OpenShift (UID-arbitrary, no privileged mode).
+
+type: application
+version: 0.1.0
+appVersion: "24.10.27"
+kubeVersion: ">=1.27.0-0"
+
+home: https://github.com/centreon/centreon
+sources:
+  - https://github.com/centreon/centreon
+  - https://github.com/centreon/centreon-collect
+
+icon: https://www.centreon.com/wp-content/uploads/2021/02/centreon-logo.svg
+
+keywords:
+  - monitoring
+  - centreon
+  - nagios
+  - openshift
+  - observability
+
+dependencies:
+  - name: mariadb
+    version: "21.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: mariadb.enabled
+
+maintainers:
+  - name: centreon-native-docker
+    url: https://github.com/example/centreon-native-docker
+
+annotations:
+  category: Monitoring
+  licenses: Apache-2.0

@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "centreon.fullname" . }}-test-connection"
+  labels:
+    {{- include "centreon.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: smoke
+      image: registry.access.redhat.com/ubi9/ubi-minimal:9.5
+      command:
+        - sh
+        - -c
+        - |
+          set -e
+          echo "=== centreon-web /installation/status ==="
+          curl -fsS --max-time 10 \
+            http://{{ include "centreon.fullname" . }}-web:{{ .Values.service.web.port }}/centreon/api/latest/platform/installation/status
+          echo
+          echo "=== centreon-gorgone /api/internal/information ==="
+          curl -fsS --max-time 10 \
+            http://{{ include "centreon.fullname" . }}-gorgone:{{ .Values.service.gorgone.port }}/api/internal/information \
+            | head -c 200
+          echo
+      securityContext:
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        capabilities: { drop: [ALL] }

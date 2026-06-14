@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: centreon-config
+  namespace: centreon
+data:
+  CENTREON_DB_HOST:           "127.0.0.1"
+  CENTREON_DB_PORT:           "3306"
+  CENTREON_DB_USER:           "centreon"
+  CENTREON_DB_NAME:           "centreon"
+  CENTREON_STORAGE_DB_NAME:   "centreon_storage"
+  CENTREON_ADMIN_USER:        "admin"
+  CENTREON_INSTANCE_NAME:     "Central"
+  BROKER_BBDO_PORT:           "5669"
+  BROKER_RRD_PORT:            "5670"
+  BROKER_RRD_HOST:            "127.0.0.1"
+  BROKER_SQL_HOST:            "127.0.0.1"
+  BROKER_DB_HOST:             "127.0.0.1"
+  BROKER_DB_PORT:             "3306"
+  BROKER_DB_USER:             "centreon"
+  BROKER_DB_NAME:             "centreon"
+  BROKER_STORAGE_DB_NAME:     "centreon_storage"
+  GORGONE_HOST:               "127.0.0.1"
+  GORGONE_HTTP_PORT:          "8085"
+  GORGONE_ZMQ_PORT:           "5556"
+  GORGONE_ID:                 "1"

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: centreon
+  labels:
+    app.kubernetes.io/name: centreon
+    app.kubernetes.io/part-of: monitoring
+  annotations:
+    openshift.io/description: "Centreon monitoring stack"
+    openshift.io/display-name: "Centreon"

@@ -1,0 +1,30 @@
+# Dev overlay (kind / minikube)
+# No NodePort : ClusterIP + port-forward.
+# Smaller resource requests for laptops.
+
+centreon:
+  admin:
+    password: "ChangeMeAdmin789!"
+
+mariadb:
+  auth:
+    rootPassword: "ChangeMeRoot123!"
+    password:     "ChangeMeCentreon456!"
+
+  primary:
+    persistence:
+      storageClass: "standard"      # local-path-provisioner default on kind
+    resources:
+      requests: { cpu: "100m", memory: "512Mi" }
+      limits:   { cpu: "1",    memory: "1Gi"   }
+
+persistence:
+  enabled: true
+  storageClass: "standard"
+
+resources:
+  brokerSql: { requests: { cpu: "50m",  memory: "256Mi" }, limits: { cpu: "500m", memory: "1Gi"   } }
+  brokerRrd: { requests: { cpu: "50m",  memory: "128Mi" }, limits: { cpu: "500m", memory: "512Mi" } }
+  engine:    { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "1",    memory: "1Gi"   } }
+  gorgone:   { requests: { cpu: "50m",  memory: "128Mi" }, limits: { cpu: "500m", memory: "512Mi" } }
+  web:       { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "1",    memory: "1Gi"   } }

@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "centreon.fullname" . }}-config
+  labels:
+    {{- include "centreon.labels" . | nindent 4 }}
+data:
+  # ---- MariaDB connection (bitnami sub-chart) ----
+  CENTREON_DB_HOST:         {{ include "centreon.mariadbHost" . | quote }}
+  CENTREON_DB_PORT:         "3306"
+  CENTREON_DB_USER:         {{ .Values.mariadb.auth.username             | quote }}
+  CENTREON_DB_NAME:         {{ .Values.centreon.database.centreonDbName  | quote }}
+  CENTREON_STORAGE_DB_NAME: {{ .Values.centreon.database.storageDbName   | quote }}
+  CENTREON_ADMIN_USER:      {{ .Values.centreon.admin.user               | quote }}
+  CENTREON_INSTANCE_NAME:   {{ .Values.centreon.instanceName             | quote }}
+
+  # ---- Broker (intra-pod on 127.0.0.1) ----
+  BROKER_BBDO_PORT:         {{ .Values.centreon.ports.brokerBbdo         | quote }}
+  BROKER_RRD_PORT:          {{ .Values.centreon.ports.brokerRrd          | quote }}
+  BROKER_RRD_HOST:          "127.0.0.1"
+  BROKER_SQL_HOST:          "127.0.0.1"
+  BROKER_DB_HOST:           {{ include "centreon.mariadbHost" . | quote }}
+  BROKER_DB_PORT:           "3306"
+  BROKER_DB_USER:           {{ .Values.mariadb.auth.username             | quote }}
+  BROKER_DB_NAME:           {{ .Values.centreon.database.centreonDbName  | quote }}
+  BROKER_STORAGE_DB_NAME:   {{ .Values.centreon.database.storageDbName   | quote }}
+
+  # ---- Gorgone (intra-pod) ----
+  GORGONE_HOST:             "127.0.0.1"
+  GORGONE_HTTP_PORT:        {{ .Values.centreon.ports.gorgoneHttp        | quote }}
+  GORGONE_ZMQ_PORT:         {{ .Values.centreon.ports.gorgoneZmq         | quote }}
+  GORGONE_ID:               "1"

@@ -1,0 +1,27 @@
+[centreon-__VERSION__-stable]
+name=Centreon OSS repository (stable).
+baseurl=https://packages.centreon.com/rpm-standard/__VERSION__/el8/stable/$basearch/
+enabled=1
+gpgcheck=0
+module_hotfixes=1
+
+[centreon-__VERSION__-stable-noarch]
+name=Centreon OSS repository (stable noarch).
+baseurl=https://packages.centreon.com/rpm-standard/__VERSION__/el8/stable/noarch/
+enabled=1
+gpgcheck=0
+module_hotfixes=1
+
+[centreon-plugins-__VERSION__-stable]
+name=Centreon plugins repository (stable).
+baseurl=https://packages.centreon.com/rpm-plugins/el8/stable/$basearch/
+enabled=1
+gpgcheck=0
+module_hotfixes=1
+
+[centreon-plugins-__VERSION__-stable-noarch]
+name=Centreon plugins repository (stable noarch).
+baseurl=https://packages.centreon.com/rpm-plugins/el8/stable/noarch/
+enabled=1
+gpgcheck=0
+module_hotfixes=1

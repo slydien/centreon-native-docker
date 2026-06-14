@@ -1,0 +1,149 @@
+# ============================================================================
+# docker-compose.yml : mirrors the Kubernetes pod topology locally.
+#
+# All services share the `centreon-net` bridge network (equivalent to the
+# pod's internal localhost). Named volumes simulate the shared emptyDirs ;
+# host volumes simulate the PVCs.
+#
+# Usage :
+#   cp .env.example .env  &&  edit .env
+#   make compose-up        # or: docker-compose --env-file .env up -d
+#   make test-integration  # pytest against the running stack
+#   make compose-down      # cleanup
+# ============================================================================
+version: "3.9"
+
+x-common-platform: &common-platform
+  platform: linux/amd64
+
+x-common-env: &common-env
+  CENTREON_DB_HOST:         ${CENTREON_DB_HOST:-mariadb}
+  CENTREON_DB_PORT:         ${CENTREON_DB_PORT:-3306}
+  CENTREON_DB_USER:         ${CENTREON_DB_USER:-centreon}
+  CENTREON_DB_PASS:         ${CENTREON_DB_PASS:-centreon}
+  CENTREON_DB_NAME:         ${CENTREON_DB_NAME:-centreon}
+  CENTREON_STORAGE_DB_NAME: ${CENTREON_STORAGE_DB_NAME:-centreon_storage}
+
+networks:
+  centreon-net:
+    driver: bridge
+
+volumes:
+  mariadb-data:
+  centreon-etc:
+  centreon-metrics:
+  gorgone-data:
+  engine-config:
+  engine-rw:
+  broker-config:
+  broker-data:
+
+services:
+
+  mariadb:
+    image: centreon/mariadb:${TAG:-24.10}
+    platform: linux/amd64
+    build: { context: ./images/mariadb }
+    environment:
+      <<: *common-env
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-rootpass}
+    networks: [centreon-net]
+    ports:
+      - "3306:3306"          # published for host-side pytest tests
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  centreon-broker-sql:
+    image: centreon/centreon-broker-sql:${TAG:-24.10}
+    platform: linux/amd64
+    build: { context: ./images/centreon-broker-sql }
+    environment:
+      <<: *common-env
+      BROKER_DB_HOST: ${CENTREON_DB_HOST:-mariadb}
+      BROKER_DB_USER: ${CENTREON_DB_USER:-centreon}
+      BROKER_DB_PASS: ${CENTREON_DB_PASS:-centreon}
+      BROKER_BBDO_PORT: "5669"
+      BROKER_RRD_HOST: centreon-broker-rrd
+      BROKER_RRD_PORT: "5670"
+    depends_on:
+      mariadb: { condition: service_healthy }
+    networks: [centreon-net]
+    ports:
+      - "5669:5669"
+    volumes:
+      - broker-config:/etc/centreon-broker
+      - broker-data:/var/lib/centreon-broker
+
+  centreon-broker-rrd:
+    image: centreon/centreon-broker-rrd:${TAG:-24.10}
+    platform: linux/amd64
+    build: { context: ./images/centreon-broker-rrd }
+    environment:
+      BROKER_RRD_PORT: "5670"
+    networks: [centreon-net]
+    ports:
+      - "5670:5670"
+    volumes:
+      - broker-data:/var/lib/centreon-broker
+      - centreon-metrics:/var/lib/centreon
+
+  centreon-engine:
+    image: centreon/centreon-engine:${TAG:-24.10}
+    platform: linux/amd64
+    build: { context: ./images/centreon-engine }
+    environment:
+      <<: *common-env
+      BROKER_SQL_HOST: centreon-broker-sql
+      BROKER_BBDO_PORT: "5669"
+    depends_on:
+      centreon-broker-sql: { condition: service_started }
+    networks: [centreon-net]
+    volumes:
+      - engine-config:/etc/centreon-engine
+      - engine-rw:/var/lib/centreon-engine/rw
+      - broker-config:/etc/centreon-broker
+
+  centreon-gorgone:
+    image: centreon/centreon-gorgone:${TAG:-24.10}
+    platform: linux/amd64
+    build: { context: ./images/centreon-gorgone }
+    environment:
+      <<: *common-env
+      GORGONE_HTTP_PORT: "8085"
+      GORGONE_ZMQ_PORT:  "5556"
+    depends_on:
+      centreon-engine: { condition: service_started }
+    networks: [centreon-net]
+    ports:
+      - "8085:8085"
+    volumes:
+      - gorgone-data:/var/lib/centreon-gorgone
+      - engine-rw:/var/lib/centreon-engine/rw
+      - engine-config:/etc/centreon-engine
+
+  centreon-web:
+    image: centreon/centreon-web:${TAG:-24.10}
+    platform: linux/amd64
+    build: { context: ./images/centreon-web }
+    environment:
+      <<: *common-env
+      CENTREON_ADMIN_USER: ${CENTREON_ADMIN_USER:-admin}
+      CENTREON_ADMIN_PASS: ${CENTREON_ADMIN_PASS:-admin}
+      CENTREON_INSTANCE_NAME: Central
+      GORGONE_HOST: centreon-gorgone
+      GORGONE_HTTP_PORT: "8085"
+    depends_on:
+      mariadb: { condition: service_healthy }
+    networks: [centreon-net]
+    ports:
+      - "8080:8080"
+    volumes:
+      - centreon-etc:/etc/centreon
+      - centreon-metrics:/var/lib/centreon
+      - broker-config:/etc/centreon-broker

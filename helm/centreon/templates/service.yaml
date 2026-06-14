@@ -1,0 +1,58 @@
+---
+# Headless service required by the StatefulSet (stable pod DNS).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "centreon.fullname" . }}-headless
+  labels:
+    {{- include "centreon.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "centreon.selectorLabels" . | nindent 4 }}
+  ports:
+    - { name: http, port: {{ .Values.centreon.ports.web }}, targetPort: http }
+---
+# Centreon Web service. ClusterIP : exposed via Ingress or Route.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "centreon.fullname" . }}-web
+  labels:
+    {{- include "centreon.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "centreon.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.web.port }}
+      targetPort: http
+      protocol: TCP
+---
+# Gorgone service (HTTP API + ZMQ).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "centreon.fullname" . }}-gorgone
+  labels:
+    {{- include "centreon.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gorgone
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "centreon.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.gorgone.port }}
+      targetPort: gorgone-http
+      protocol: TCP
+    - name: zmq
+      port: {{ .Values.centreon.ports.gorgoneZmq }}
+      targetPort: gorgone-zmq
+      protocol: TCP

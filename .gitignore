@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Local env / config
+.env
+*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.bak
+*~
+
+# Logs
+*.log
+
+# Helm
+helm/centreon/charts/
+helm/centreon/Chart.lock
+helm/*/charts/
+helm/*/Chart.lock
+
+# Kubeconfig backups
+*.kubeconfig
+.kube/

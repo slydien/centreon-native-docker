@@ -1,0 +1,31 @@
+# Patterns to ignore when building packages.
+# Standard Helm .helmignore — files NOT to package into the tgz.
+
+# VCS dirs
+.git/
+.gitignore
+.bzr/
+.bzrignore
+.hg/
+.hgignore
+.svn/
+
+# Common backup files
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+
+# Various IDEs
+.project
+.idea/
+*.tmproj
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Helm-specific
+# (charts/ and Chart.lock SHOULD be packaged — don't ignore)

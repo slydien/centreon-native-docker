@@ -1,0 +1,54 @@
+Centreon {{ .Chart.AppVersion }} has been deployed.
+Release : {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+----------------------------------------------------------------------
+1. Wait until the pod is fully ready (~ 90-120 s on first install) :
+
+   kubectl get pod -n {{ .Release.Namespace }} \
+     -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+----------------------------------------------------------------------
+2. Retrieve the admin password :
+
+   kubectl get secret {{ include "centreon.secretName" . }} -n {{ .Release.Namespace }} \
+     -o jsonpath='{.data.CENTREON_ADMIN_PASS}' | base64 -d ; echo
+
+   Username  : {{ .Values.centreon.admin.user }}
+
+----------------------------------------------------------------------
+3. Access the UI :
+
+{{- if .Values.route.enabled }}
+   OpenShift Route :
+   oc get route {{ include "centreon.fullname" . }} -n {{ .Release.Namespace }} \
+     -o jsonpath='https://{.spec.host}/centreon/{"\n"}'
+{{- else if .Values.ingress.enabled }}
+   Ingress URL(s) :
+{{- range .Values.ingress.hosts }}
+     http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}/centreon/
+{{- end }}
+{{- else }}
+   ClusterIP — port-forward to access locally :
+     kubectl port-forward -n {{ .Release.Namespace }} \
+       svc/{{ include "centreon.fullname" . }}-web 8080:{{ .Values.service.web.port }}
+   Then browse to  http://localhost:8080/centreon/
+{{- end }}
+
+----------------------------------------------------------------------
+4. Run the smoke tests :
+
+   helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+----------------------------------------------------------------------
+5. Where data lives :
+{{- if .Values.persistence.enabled }}
+   PVCs (kept on uninstall thanks to resource-policy: keep) :
+     centreon-etc-{{ include "centreon.fullname" . }}-0       ({{ .Values.persistence.centreonEtc.size }})
+     centreon-metrics-{{ include "centreon.fullname" . }}-0   ({{ .Values.persistence.centreonMetrics.size }})
+     gorgone-data-{{ include "centreon.fullname" . }}-0       ({{ .Values.persistence.gorgoneData.size }})
+   MariaDB PVC (managed by the bitnami sub-chart) :
+     data-{{ .Release.Name }}-mariadb-0                       ({{ .Values.mariadb.primary.persistence.size }})
+{{- else }}
+   /!\ persistence.enabled=false — everything in emptyDir, data lost on pod restart.
+{{- end }}

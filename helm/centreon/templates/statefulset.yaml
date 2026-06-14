@@ -1,0 +1,303 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "centreon.fullname" . }}
+  labels:
+    {{- include "centreon.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "centreon.fullname" . }}-headless
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "centreon.selectorLabels" . | nindent 6 }}
+
+  # ---------------------------------------------------------------------
+  # Centreon PVCs (idiomatic StatefulSet volumeClaimTemplates).
+  # The MariaDB PVC is owned by the bitnami sub-chart.
+  # ---------------------------------------------------------------------
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    {{- range $pvc := list "centreonEtc" "centreonMetrics" "gorgoneData" }}
+    {{- $cfg := index $.Values.persistence $pvc }}
+    - metadata:
+        name: {{ kebabcase $pvc }}
+        labels:
+          {{- include "centreon.labels" $ | nindent 10 }}
+          app.kubernetes.io/component: {{ kebabcase $pvc }}
+      spec:
+        accessModes:
+          {{- toYaml (default $.Values.persistence.accessModes $cfg.accessModes) | nindent 10 }}
+        {{- with (include "centreon.storageClass" (dict "ctx" $ "pvc" $pvc)) }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $cfg.size | quote }}
+    {{- end }}
+  {{- end }}
+
+  template:
+    metadata:
+      labels:
+        {{- include "centreon.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.secrets.create }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      terminationGracePeriodSeconds: 60
+      shareProcessNamespace: {{ .Values.shareProcessNamespace }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      # ------------------------------------------------------ initContainers
+      # We reuse the centreon-engine image for the init containers : it
+      # already runs as USER 1001:0 (runAsNonRoot=true compatible), ships
+      # bash + standard utilities, and is pulled anyway for the main
+      # container.
+      initContainers:
+        # 1) Set perms on the shared emptyDir volumes (gid 0, sticky group).
+        - name: prepare-shared-dirs
+          image: {{ include "centreon.image" (dict "ctx" . "component" "engine") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              mkdir -p /shared/engine-rw /shared/engine-config /shared/broker-config
+              chmod -R g+rwxs /shared || true
+          volumeMounts:
+            - { name: engine-rw,     mountPath: /shared/engine-rw }
+            - { name: engine-config, mountPath: /shared/engine-config }
+            - { name: broker-config, mountPath: /shared/broker-config }
+          resources:
+            requests: { cpu: "10m", memory: "16Mi" }
+            limits:   { cpu: "100m", memory: "64Mi" }
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+
+        # 2) Wait for MariaDB (bitnami sub-chart) over TCP before starting
+        #    the Centreon containers. Avoids needless restarts while the
+        #    mariadb service is not yet ready.
+        - name: wait-for-mariadb
+          image: {{ include "centreon.image" (dict "ctx" . "component" "engine") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - bash
+            - -c
+            - |
+              host="{{ include "centreon.mariadbHost" . }}"
+              echo "[wait-for-mariadb] waiting for $host:3306"
+              for i in $(seq 1 120); do
+                if (echo > /dev/tcp/$host/3306) 2>/dev/null; then
+                  echo "[wait-for-mariadb] ready (after ${i}s)"; exit 0
+                fi
+                sleep 1
+              done
+              echo "[wait-for-mariadb] TIMEOUT after 120s" >&2
+              exit 1
+          resources:
+            requests: { cpu: "10m", memory: "16Mi" }
+            limits:   { cpu: "100m", memory: "64Mi" }
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+
+      containers:
+        # -------------------------------------------------------- broker-sql
+        - name: centreon-broker-sql
+          image: {{ include "centreon.image" (dict "ctx" . "component" "brokerSql") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef: { name: {{ include "centreon.fullname" . }}-config }
+          env:
+            - name: BROKER_DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "centreon.mariadbSecretName" . }}
+                  key: mariadb-password
+          ports:
+            - { name: bbdo-sql, containerPort: {{ .Values.centreon.ports.brokerBbdo }}, protocol: TCP }
+          readinessProbe:
+            exec: { command: [/usr/local/bin/healthcheck.sh] }
+            initialDelaySeconds: {{ .Values.probes.startupDelay.broker }}
+            periodSeconds: 10
+          livenessProbe:
+            exec: { command: [/usr/local/bin/healthcheck.sh] }
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources.brokerSql | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - { name: broker-config, mountPath: /etc/centreon-broker }
+            - { name: broker-data,   mountPath: /var/lib/centreon-broker }
+
+        # -------------------------------------------------------- broker-rrd
+        - name: centreon-broker-rrd
+          image: {{ include "centreon.image" (dict "ctx" . "component" "brokerRrd") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef: { name: {{ include "centreon.fullname" . }}-config }
+          ports:
+            - { name: bbdo-rrd, containerPort: {{ .Values.centreon.ports.brokerRrd }}, protocol: TCP }
+          readinessProbe:
+            exec: { command: [/usr/local/bin/healthcheck.sh] }
+            initialDelaySeconds: {{ .Values.probes.startupDelay.broker }}
+            periodSeconds: 10
+          livenessProbe:
+            exec: { command: [/usr/local/bin/healthcheck.sh] }
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources.brokerRrd | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - { name: centreon-metrics, mountPath: /var/lib/centreon }
+            - { name: broker-data,      mountPath: /var/lib/centreon-broker }
+
+        # ------------------------------------------------------------ engine
+        - name: centreon-engine
+          image: {{ include "centreon.image" (dict "ctx" . "component" "engine") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef: { name: {{ include "centreon.fullname" . }}-config }
+          readinessProbe:
+            exec: { command: [/usr/local/bin/healthcheck.sh] }
+            initialDelaySeconds: {{ .Values.probes.startupDelay.engine }}
+            periodSeconds: 10
+          livenessProbe:
+            exec: { command: [/usr/local/bin/healthcheck.sh] }
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources.engine | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - { name: engine-config, mountPath: /etc/centreon-engine }
+            - { name: engine-rw,     mountPath: /var/lib/centreon-engine/rw }
+            - { name: broker-config, mountPath: /etc/centreon-broker }
+            - { name: broker-data,   mountPath: /var/lib/centreon-broker }
+
+        # ----------------------------------------------------------- gorgone
+        - name: centreon-gorgone
+          image: {{ include "centreon.image" (dict "ctx" . "component" "gorgone") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef: { name: {{ include "centreon.fullname" . }}-config }
+          env:
+            - name: CENTREON_DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "centreon.mariadbSecretName" . }}
+                  key: mariadb-password
+          ports:
+            - { name: gorgone-zmq,  containerPort: {{ .Values.centreon.ports.gorgoneZmq  }}, protocol: TCP }
+            - { name: gorgone-http, containerPort: {{ .Values.centreon.ports.gorgoneHttp }}, protocol: TCP }
+          readinessProbe:
+            exec: { command: [/usr/local/bin/healthcheck.sh] }
+            initialDelaySeconds: {{ .Values.probes.startupDelay.gorgone }}
+            periodSeconds: 10
+          livenessProbe:
+            exec: { command: [/usr/local/bin/healthcheck.sh] }
+            initialDelaySeconds: 90
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.resources.gorgone | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - { name: gorgone-data,  mountPath: /var/lib/centreon-gorgone }
+            - { name: engine-rw,     mountPath: /var/lib/centreon-engine/rw }
+            - { name: engine-config, mountPath: /etc/centreon-engine }
+
+        # --------------------------------------------------------------- web
+        - name: centreon-web
+          image: {{ include "centreon.image" (dict "ctx" . "component" "web") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef: { name: {{ include "centreon.fullname" . }}-config }
+          env:
+            - name: CENTREON_DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "centreon.mariadbSecretName" . }}
+                  key: mariadb-password
+            - name: CENTREON_ADMIN_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "centreon.secretName" . }}
+                  key: CENTREON_ADMIN_PASS
+          ports:
+            - { name: http, containerPort: {{ .Values.centreon.ports.web }}, protocol: TCP }
+          readinessProbe:
+            httpGet:
+              path: /centreon/api/latest/platform/installation/status
+              port: http
+            initialDelaySeconds: {{ .Values.probes.startupDelay.web }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /centreon/api/latest/platform/installation/status
+              port: http
+            initialDelaySeconds: 180
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.resources.web | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - { name: centreon-etc,     mountPath: /etc/centreon }
+            - { name: centreon-metrics, mountPath: /var/lib/centreon }
+            - { name: broker-config,    mountPath: /etc/centreon-broker }
+            # moveFiles.php copies from /var/cache/centreon/config/engine/<id>/
+            # to /etc/centreon-engine → shared engine-config volume.
+            - { name: engine-config,    mountPath: /etc/centreon-engine }
+
+      # -------------------- Ephemeral volumes (emptyDir) -------------------
+      volumes:
+        - { name: engine-config, emptyDir: {} }
+        - { name: engine-rw,     emptyDir: {} }
+        - { name: broker-config, emptyDir: {} }
+        - { name: broker-data,   emptyDir: {} }
+        {{- if not .Values.persistence.enabled }}
+        # Persistence-disabled mode (CI/tests) : everything in emptyDir.
+        - { name: centreon-etc,     emptyDir: {} }
+        - { name: centreon-metrics, emptyDir: {} }
+        - { name: gorgone-data,     emptyDir: {} }
+        {{- end }}

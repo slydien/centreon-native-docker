@@ -1,0 +1,269 @@
+# Default values for Centreon
+# ===========================
+# This chart deploys a single StatefulSet with 5 Centreon containers
+# (broker-sql + broker-rrd + engine + gorgone + web) and depends on the
+# Bitnami MariaDB sub-chart for the database tier.
+
+# -----------------------------------------------------------------------------
+# Image
+# -----------------------------------------------------------------------------
+image:
+  # Base registry + namespace (per-image overrides further below).
+  registry: ghcr.io
+  repository: example/centreon
+  pullPolicy: IfNotPresent
+  # Shared tag default ; per-image overrides supported.
+  tag: "24.10"
+  # imagePullSecrets — names of secrets that exist in the namespace.
+  pullSecrets: []
+
+  # Per-image overrides (leave repo/tag empty to inherit the global values).
+  # Example :
+  #   web:
+  #     repository: quay.example.com/centreon/centreon-web
+  #     tag: 24.10.27
+  brokerSql:    { repository: "", tag: "" }
+  brokerRrd:    { repository: "", tag: "" }
+  engine:       { repository: "", tag: "" }
+  gorgone:      { repository: "", tag: "" }
+  web:          { repository: "", tag: "" }
+
+# -----------------------------------------------------------------------------
+# Centreon configuration
+# -----------------------------------------------------------------------------
+centreon:
+  # Poller name displayed in the UI and used by broker (poller_name).
+  instanceName: "Central"
+
+  # Web admin credentials
+  admin:
+    user: "admin"
+    # Admin password. Leave empty to either rely on .secrets.existingSecret
+    # or have a random password generated on first install.
+    password: ""
+
+  # DB configuration. Both databases (centreon, centreon_storage) are
+  # created by the mariadb sub-chart (cf. .Values.mariadb.initdbScripts below).
+  database:
+    centreonDbName:  "centreon"
+    storageDbName:   "centreon_storage"
+
+  # Internal ports (rarely change)
+  ports:
+    brokerBbdo:  5669            # broker-sql input
+    brokerRrd:   5670            # broker-rrd input
+    gorgoneHttp: 8085
+    gorgoneZmq:  5556
+    web:         8080
+
+# -----------------------------------------------------------------------------
+# Secrets — password management
+# -----------------------------------------------------------------------------
+# This chart creates a Secret <release>-centreon-secret with :
+#   CENTREON_ADMIN_PASS, CENTREON_DB_PASS (= mariadb auth.password)
+# If secrets.create=false you must provide a pre-existing Secret through
+# secrets.existingSecret. For MariaDB the bitnami sub-chart owns its own
+# mechanism (auth.existingSecret).
+secrets:
+  create: true
+  existingSecret: ""
+
+# -----------------------------------------------------------------------------
+# MariaDB sub-chart (Bitnami)
+# -----------------------------------------------------------------------------
+# See https://artifacthub.io/packages/helm/bitnami/mariadb
+# The sub-chart creates a StatefulSet `<release>-mariadb` with its own PVC.
+mariadb:
+  enabled: true
+  architecture: standalone
+  # Disable the NetworkPolicy that the sub-chart adds by default : we keep
+  # a Service+RBAC exposure model, without NP.
+  networkPolicy:
+    enabled: false
+  # Since 2024 Bitnami moved its main catalogue to a paid registry. The
+  # public (free) repository now lives under `bitnamilegacy/`. For
+  # production deployments with a Bitnami subscription, override with
+  # registry=docker.io and repository=bitnami and a recent tag.
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/mariadb
+    tag: "11.4.4-debian-12-r0"
+  auth:
+    # The bitnami chart requires `rootPassword` to be set or
+    # `forcePassword: false` (auto-generation). To resume an existing
+    # install : point existingSecret to a Secret with the keys
+    # mariadb-root-password, mariadb-password, mariadb-replication-password.
+    rootPassword: ""
+    username: "centreon"
+    password: ""
+    database: "centreon"
+    existingSecret: ""
+
+  # Centreon tunings — override bitnami's default my.cnf.
+  primary:
+    extraFlags: ""
+    configuration: |-
+      [mysqld]
+      skip-name-resolve
+      explicit_defaults_for_timestamp
+      basedir=/opt/bitnami/mariadb
+      plugin_dir=/opt/bitnami/mariadb/plugin
+      port=3306
+      socket=/opt/bitnami/mariadb/tmp/mysql.sock
+      tmpdir=/opt/bitnami/mariadb/tmp
+      max_allowed_packet=64M
+      bind-address=*
+      pid-file=/opt/bitnami/mariadb/tmp/mysqld.pid
+      log-error=/opt/bitnami/mariadb/logs/mysqld.log
+      character-set-server=utf8mb4
+      collation-server=utf8mb4_unicode_ci
+      innodb_file_per_table=1
+      open_files_limit=32000
+      key_buffer_size=64M
+      sort_buffer_size=32M
+      join_buffer_size=4M
+      thread_cache_size=64
+      read_buffer_size=512K
+      read_rnd_buffer_size=256K
+      innodb_buffer_pool_size=512M
+      innodb_log_file_size=64M
+      innodb_log_buffer_size=8M
+      innodb_flush_log_at_trx_commit=2
+      innodb_io_capacity=200
+
+      [client]
+      port=3306
+      socket=/opt/bitnami/mariadb/tmp/mysql.sock
+      plugin_dir=/opt/bitnami/mariadb/plugin
+
+      [manager]
+      port=3306
+      socket=/opt/bitnami/mariadb/tmp/mysql.sock
+      pid-file=/opt/bitnami/mariadb/tmp/mysqld.pid
+
+    persistence:
+      enabled: true
+      size: 20Gi
+      # storageClass: ""
+
+    resources:
+      requests: { cpu: "500m", memory: "1Gi" }
+      limits:   { cpu: "2",    memory: "2Gi" }
+
+  # Create centreon_storage and grant centreon access to it in addition to
+  # the centreon DB that bitnami creates via auth.database. These scripts
+  # run once (on first boot, when the datadir is empty).
+  initdbScripts:
+    01-create-storage-db.sql: |
+      CREATE DATABASE IF NOT EXISTS centreon_storage
+        CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+      GRANT ALL PRIVILEGES ON centreon_storage.* TO 'centreon'@'%';
+      FLUSH PRIVILEGES;
+
+# -----------------------------------------------------------------------------
+# Persistence (Centreon side — the DB is managed by the mariadb sub-chart)
+# -----------------------------------------------------------------------------
+persistence:
+  enabled: true
+  # storageClass: "" → cluster's default StorageClass.
+  storageClass: ""
+  accessModes: [ReadWriteOnce]
+
+  centreonEtc:      { size: 1Gi  }
+  centreonMetrics:  { size: 10Gi }
+  gorgoneData:      { size: 1Gi  }
+
+# -----------------------------------------------------------------------------
+# Resources (per Centreon container)
+# -----------------------------------------------------------------------------
+resources:
+  brokerSql:
+    requests: { cpu: "200m", memory: "512Mi" }
+    limits:   { cpu: "1",    memory: "2Gi"   }
+  brokerRrd:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "1",    memory: "1Gi"   }
+  engine:
+    requests: { cpu: "500m", memory: "512Mi" }
+    limits:   { cpu: "4",    memory: "2Gi"   }
+  gorgone:
+    requests: { cpu: "200m", memory: "256Mi" }
+    limits:   { cpu: "1",    memory: "1Gi"   }
+  web:
+    requests: { cpu: "300m", memory: "512Mi" }
+    limits:   { cpu: "2",    memory: "2Gi"   }
+
+# -----------------------------------------------------------------------------
+# Services (ClusterIP — external exposure via Ingress or OpenShift Route)
+# -----------------------------------------------------------------------------
+service:
+  annotations: {}
+  web:
+    port: 80
+  gorgone:
+    port: 8085
+
+# -----------------------------------------------------------------------------
+# Ingress (vanilla Kubernetes)
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: centreon.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# -----------------------------------------------------------------------------
+# OpenShift Route
+# -----------------------------------------------------------------------------
+route:
+  enabled: false
+  host: ""              # empty → auto-generated by the OpenShift router
+  annotations: {}
+  tls:
+    enabled: true
+    termination: edge   # edge | passthrough | reencrypt
+    insecureEdgeTerminationPolicy: Redirect
+
+# -----------------------------------------------------------------------------
+# Pod & security context
+# -----------------------------------------------------------------------------
+# On OpenShift : the default `restricted-v2` SCC assigns an arbitrary UID ;
+# our images are prepared (chown 1001:0, chmod g=u) to run without privileges.
+podSecurityContext:
+  fsGroupChangePolicy: OnRootMismatch
+
+containerSecurityContext:
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+
+# Shared PID namespace : required by the `service` wrapper in the web
+# container so it can signal centengine (OpenShift-safe substitute for systemctl).
+shareProcessNamespace: true
+
+# -----------------------------------------------------------------------------
+# Probes (initialDelaySeconds per container)
+# -----------------------------------------------------------------------------
+probes:
+  startupDelay:
+    broker:   20
+    engine:   30
+    gorgone:  30
+    web:      60
+
+# -----------------------------------------------------------------------------
+# Scheduling
+# -----------------------------------------------------------------------------
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Extra labels and annotations (applied to StatefulSet + Pod).
+podAnnotations: {}
+podLabels: {}

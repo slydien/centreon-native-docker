@@ -1,0 +1,18 @@
+# OpenShift Route — TLS terminated by the edge router
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: centreon
+  namespace: centreon
+spec:
+  host: centreon.apps.example.com   # change per cluster
+  port:
+    targetPort: http
+  to:
+    kind: Service
+    name: centreon-web
+    weight: 100
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

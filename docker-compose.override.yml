@@ -1,0 +1,8 @@
+# Override: dockerhost est x86_64 natif, pas besoin de --platform amd64
+services:
+  mariadb:               { platform: "" }
+  centreon-broker-sql:   { platform: "" }
+  centreon-broker-rrd:   { platform: "" }
+  centreon-engine:       { platform: "" }
+  centreon-gorgone:      { platform: "" }
+  centreon-web:          { platform: "" }
