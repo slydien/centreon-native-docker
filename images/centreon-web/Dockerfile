@@ -98,6 +98,23 @@ RUN sed -i \
     && rm -f /etc/httpd/conf.d/ssl.conf \
     && sed -i 's|<VirtualHost \*:80>|<VirtualHost *:8080>|' \
       /etc/httpd/conf.d/10-centreon.conf \
+    # OpenShift Route compatibility : edge termination means TLS is closed
+    # at the router and httpd only ever sees plain HTTP on 8080. The router
+    # sets X-Forwarded-Proto (and -Port) to the externally visible
+    # scheme/port ; expose that to PHP-FPM as HTTPS=on so Centreon Web
+    # builds correct absolute URLs (see the initUri() patch below).
+    # mod_rewrite directives in server context aren't inherited by
+    # VirtualHosts, so inject them inside the vhost block.
+    && printf '%s\n' \
+      '    RewriteEngine On' \
+      '    RewriteCond %{HTTP:X-Forwarded-Proto} =https' \
+      '    RewriteRule .* - [E=HTTPS:on]' \
+      > /tmp/openshift-forwarded-proto.conf \
+    && awk -v insfile=/tmp/openshift-forwarded-proto.conf \
+      '/<\/VirtualHost>/ { while ((getline line < insfile) > 0) print line; close(insfile) } { print }' \
+      /etc/httpd/conf.d/10-centreon.conf > /tmp/10-centreon.conf \
+    && mv /tmp/10-centreon.conf /etc/httpd/conf.d/10-centreon.conf \
+    && rm /tmp/openshift-forwarded-proto.conf \
     && sed -i \
       -e 's|^listen = .*|listen = 127.0.0.1:9042|' \
       -e 's|^listen.allowed_clients|;listen.allowed_clients|' \
@@ -179,14 +196,20 @@ esac
 WRAPPER
 
 # ----- PHP patch : MonitoringServerConfigurationRepositoryApi -----
-# Centreon Web's internal HttpClient (Symfony) builds the export URL with
-# SERVER_NAME but NOT SERVER_PORT => default HTTP 80 while we listen on 8080.
-# Patch `initUri()` at build time to include the port.
+# Centreon Web's internal HttpClient (Symfony) builds the export URL from
+# REQUEST_SCHEME + SERVER_NAME only => http://host/centreon, which is wrong
+# both for docker-compose (real URL is http://host:8080/centreon) and for
+# an OpenShift Route with edge TLS termination (real URL is
+# https://host/centreon, but httpd only sees plain HTTP on 8080).
+# Patch `initUri()` at build time to prefer X-Forwarded-Proto/-Port (set by
+# the OpenShift router, see 00-openshift-forwarded-proto.conf) and fall
+# back to REQUEST_SCHEME/SERVER_PORT otherwise ; omit the port when it's
+# the scheme's default (80/443).
 RUN PHP_FILE=/usr/share/centreon/src/Centreon/Infrastructure/MonitoringServer/Repository/MonitoringServerConfigurationRepositoryApi.php \
     && OLD="\$this->serverUri = \$serverScheme . '://' . \$_SERVER['SERVER_NAME'] . '/' . \$prefixUri;" \
-    && NEW="\$port = \$_SERVER['SERVER_PORT'] ?? '80'; \$this->serverUri = \$serverScheme . '://' . \$_SERVER['SERVER_NAME'] . ':' . \$port . '/' . \$prefixUri;" \
+    && NEW="\$scheme = \$_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ((\$_SERVER['HTTPS'] ?? '') === 'on' ? 'https' : \$serverScheme); \$port = \$_SERVER['HTTP_X_FORWARDED_PORT'] ?? \$_SERVER['SERVER_PORT'] ?? '80'; \$defaultPort = \$scheme === 'https' ? '443' : '80'; \$hostPort = ((string) \$port === \$defaultPort) ? '' : ':' . \$port; \$this->serverUri = \$scheme . '://' . \$_SERVER['SERVER_NAME'] . \$hostPort . '/' . \$prefixUri;" \
     && php -r "\$f='$PHP_FILE'; \$c=file_get_contents(\$f); \$c=str_replace(\$argv[1], \$argv[2], \$c); file_put_contents(\$f, \$c);" "$OLD" "$NEW" \
-    && grep -q "SERVER_PORT" "$PHP_FILE" && echo "PHP patch OK"
+    && grep -q "X_FORWARDED_PROTO" "$PHP_FILE" && echo "PHP patch OK"
 
 EXPOSE 8080
 USER 1001:0
