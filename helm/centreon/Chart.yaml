@@ -32,8 +32,9 @@ dependencies:
     condition: mariadb.enabled
 
 maintainers:
-  - name: centreon-native-docker
-    url: https://github.com/example/centreon-native-docker
+  - name: Lydien Sandanasamy
+    email: dev@slydien.com
+    url: https://github.com/slydien/centreon-native-docker
 
 annotations:
   category: Monitoring

@@ -79,7 +79,7 @@ Main keys :
 | Key | Default | Description |
 |-----|---------|-------------|
 | `image.registry` | `ghcr.io` | Container registry |
-| `image.repository` | `example/centreon` | Owner / namespace within the registry |
+| `image.repository` | `slydien` | Owner / namespace within the registry |
 | `image.tag` | `24.10` | Shared tag for the 5 Centreon images |
 | `image.pullSecrets` | `[]` | imagePullSecrets |
 | `mariadb.enabled` | `true` | Disable to point at an external DB (see below) |

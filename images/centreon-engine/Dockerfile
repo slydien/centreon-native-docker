@@ -29,11 +29,14 @@ ENV LANG=C.UTF-8 \
     CENTREON_ENGINE_RUNDIR=/var/run/centreon-engine
 
 # Centreon repo definition (no centreon-release RPM exists at this path —
-# we drop the .repo file directly).
+# we drop the .repo file directly). CENTREON_VERSION can be either a
+# major.minor branch ("24.10") or a full X.Y.Z release ("24.10.27") — only
+# the branch ends up in the repo URL.
 COPY centreon.repo /tmp/centreon.repo.tpl
 
 # hadolint ignore=DL3041,DL3033
-RUN sed "s/__VERSION__/${CENTREON_VERSION}/g" /tmp/centreon.repo.tpl > /etc/yum.repos.d/centreon.repo \
+RUN CENTREON_BRANCH=$(echo "${CENTREON_VERSION}" | cut -d. -f1-2) \
+    && sed "s/__VERSION__/${CENTREON_BRANCH}/g" /tmp/centreon.repo.tpl > /etc/yum.repos.d/centreon.repo \
     && rm /tmp/centreon.repo.tpl \
     && dnf install -y --setopt=install_weak_deps=False \
         epel-release glibc-langpack-en dnf-plugins-core \

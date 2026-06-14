@@ -12,13 +12,13 @@
 
 Images are built and pushed automatically by the
 `.github/workflows/build-images.yml` workflow. They land at
-`ghcr.io/<owner>/centreon-*:<tag>`.
+`ghcr.io/slydien/centreon-*:<tag>` (or `ghcr.io/slydien/mariadb:<tag>` for MariaDB).
 
 For a manual local build :
 
 ```bash
-make build TAG=24.10 REGISTRY=ghcr.io NAMESPACE=<owner>
-make push  TAG=24.10 REGISTRY=ghcr.io NAMESPACE=<owner>
+make build TAG=24.10 REGISTRY=ghcr.io NAMESPACE=slydien
+make push  TAG=24.10 REGISTRY=ghcr.io NAMESPACE=slydien
 ```
 
 ## 2. Deploy with Helm
@@ -32,7 +32,7 @@ helm install centreon ./helm/centreon \
   -n centreon --create-namespace \
   -f helm/centreon/values-openshift.yaml \
   --set image.registry=ghcr.io \
-  --set image.repository=<owner> \
+  --set image.repository=slydien \
   --set route.host=centreon.apps.my-cluster.example.com
 ```
 

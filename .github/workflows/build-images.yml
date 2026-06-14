@@ -1,18 +1,23 @@
 name: Build & push images
 
-# Builds the six container images and pushes them to ghcr.io.
-# - Push to `main`      => tag :main + :sha-<short> (mutable)
-# - Tag `v1.2.3`         => tag :1.2.3, :1.2, :latest (immutable semver)
-# - PRs                  => build only (no push), used to validate the Dockerfiles
-# - workflow_dispatch    => manual rebuild with a custom tag
+# Build strategy
+# --------------
+# * Tag `v24.10.27` (the canonical release trigger)
+#     => CENTREON_VERSION=24.10.27 (passed as --build-arg)
+#     => image tags  24.10.27, 24.10, 24, latest
+#     => triggers helm-release.yml in parallel for the chart
+# * Push to `main`
+#     => CENTREON_VERSION = appVersion from Chart.yaml
+#     => image tags  main, sha-<short>
+# * Pull request
+#     => same as main but no push (validation only)
+# * workflow_dispatch
+#     => optional custom version + extra tag
 
 on:
   push:
     branches: [main]
     tags: ["v*"]
-    paths:
-      - "images/**"
-      - ".github/workflows/build-images.yml"
   pull_request:
     branches: [main]
     paths:
@@ -20,8 +25,8 @@ on:
       - ".github/workflows/build-images.yml"
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Custom tag to publish (in addition to the default ones)"
+      centreon_version:
+        description: "Centreon version to build (e.g. 24.10.27). Default: Chart.yaml appVersion."
         required: false
         type: string
 
@@ -34,8 +39,43 @@ env:
   IMAGE_OWNER: ${{ github.repository_owner }}
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # 1) Resolve the Centreon version
+  #    - tag v24.10.27       => "24.10.27"
+  #    - workflow_dispatch   => input.centreon_version (if set) else appVersion
+  #    - main / PR           => appVersion from Chart.yaml
+  # ---------------------------------------------------------------------------
+  version:
+    name: Resolve Centreon version
+    runs-on: ubuntu-latest
+    outputs:
+      centreon_version: ${{ steps.v.outputs.centreon_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            v="${GITHUB_REF#refs/tags/v}"
+          elif [[ -n "${{ inputs.centreon_version }}" ]]; then
+            v="${{ inputs.centreon_version }}"
+          else
+            v=$(awk '/^appVersion:/ {gsub(/"/,"",$2); print $2; exit}' helm/centreon/Chart.yaml)
+          fi
+          # Sanity check : must look like X.Y or X.Y.Z
+          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "ERROR: invalid version '$v'"; exit 1
+          fi
+          echo "centreon_version=${v}" >> "$GITHUB_OUTPUT"
+          echo "Resolved Centreon version: ${v}"
+
+  # ---------------------------------------------------------------------------
+  # 2) Build the six images in parallel
+  # ---------------------------------------------------------------------------
   build:
     name: ${{ matrix.image }}
+    needs: version
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -49,8 +89,7 @@ jobs:
           - centreon-web
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -68,18 +107,19 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ matrix.image }}
+          # `latest=auto` (default) tags :latest only on the highest semver
+          # seen on the registry — exactly what we want for releases.
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
+            type=raw,value=${{ needs.version.outputs.centreon_version }},enable=${{ github.event_name != 'pull_request' }}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+            type=ref,event=branch
+            type=ref,event=pr
             type=sha,prefix=sha-,format=short
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.version.outputs.centreon_version }}
             org.opencontainers.image.licenses=Apache-2.0
 
       - name: Build & push
@@ -90,6 +130,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            CENTREON_VERSION=${{ needs.version.outputs.centreon_version }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to:   type=gha,scope=${{ matrix.image }},mode=max
           provenance: true

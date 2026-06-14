@@ -30,10 +30,13 @@ ENV LANG=C.UTF-8 \
     HTTPD_LOGDIR=/var/log/httpd \
     HTTPD_PORT=8080
 
+# CENTREON_VERSION accepts a major.minor branch or a full X.Y.Z release ;
+# the major.minor part is what ends up in the Centreon repo URL.
 COPY centreon.repo /tmp/centreon.repo.tpl
 
 # hadolint ignore=DL3041
-RUN sed "s/__VERSION__/${CENTREON_VERSION}/g" /tmp/centreon.repo.tpl > /etc/yum.repos.d/centreon.repo \
+RUN CENTREON_BRANCH=$(echo "${CENTREON_VERSION}" | cut -d. -f1-2) \
+    && sed "s/__VERSION__/${CENTREON_BRANCH}/g" /tmp/centreon.repo.tpl > /etc/yum.repos.d/centreon.repo \
     && rm /tmp/centreon.repo.tpl \
     && dnf install -y --setopt=install_weak_deps=False \
         epel-release glibc-langpack-en dnf-plugins-core \

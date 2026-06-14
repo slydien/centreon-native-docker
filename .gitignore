@@ -37,3 +37,6 @@ helm/*/Chart.lock
 # Kubeconfig backups
 *.kubeconfig
 .kube/
+
+# Claude
+.claude/

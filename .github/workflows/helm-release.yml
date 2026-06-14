@@ -1,21 +1,27 @@
 name: Release Helm chart
 
-# Packages the chart and publishes it as an OCI artifact under
-# ghcr.io/<owner>/charts/centreon on every git tag matching `chart-v*`.
+# Triggered by the same `v*` tag as the images : the chart appVersion,
+# chart version and default image.tag are all pinned to the Centreon
+# version derived from the tag.
+#
+# Result : a chart pushed as
+#     oci://ghcr.io/${{ github.repository_owner }}/charts/centreon:<version>
+# whose default values point at the matching image tag — fully reproducible
+# for any past or future Centreon release by retagging `v<version>`.
 
 on:
   push:
-    tags: ["chart-v*"]
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       version:
-        description: "Chart version to publish (e.g. 0.2.0)"
+        description: "Centreon version to publish the chart for (e.g. 24.10.27)"
         required: true
         type: string
 
 permissions:
-  contents: read
-  packages: write
+  contents: write   # to create the GitHub Release
+  packages: write   # to push the chart to ghcr
 
 env:
   REGISTRY: ghcr.io
@@ -23,7 +29,7 @@ env:
 
 jobs:
   release:
-    name: Package & push chart
+    name: Package & push chart + GitHub Release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,33 +39,48 @@ jobs:
         with:
           version: "v3.16.2"
 
-      - name: Derive version
+      - name: Resolve version
         id: ver
+        shell: bash
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if [[ -n "${{ inputs.version }}" ]]; then
+            v="${{ inputs.version }}"
           else
-            # Drop the chart- prefix from the tag (chart-v0.2.0 -> 0.2.0)
-            v="${GITHUB_REF_NAME#chart-v}"
-            echo "version=${v}" >> "$GITHUB_OUTPUT"
+            v="${GITHUB_REF_NAME#v}"
           fi
+          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: chart release requires a full X.Y.Z version, got '$v'"
+            exit 1
+          fi
+          echo "version=${v}" >> "$GITHUB_OUTPUT"
+          echo "Centreon version: ${v}"
 
-      - name: Bump Chart.yaml version
+      - name: Pin Chart.yaml + values.yaml to the release version
         run: |
-          sed -i -e "s/^version: .*/version: ${{ steps.ver.outputs.version }}/" helm/centreon/Chart.yaml
-          cat helm/centreon/Chart.yaml | head -5
+          set -euo pipefail
+          v="${{ steps.ver.outputs.version }}"
+          # appVersion (Centreon) = chart version = image tag : everything coupled
+          sed -i -E "s/^version: .*/version: ${v}/"        helm/centreon/Chart.yaml
+          sed -i -E "s/^appVersion: .*/appVersion: \"${v}\"/" helm/centreon/Chart.yaml
+          # values.yaml : default image.tag → release version
+          sed -i -E "s/^(  tag: ).*/\1\"${v}\"/"           helm/centreon/values.yaml
+          echo "--- Chart.yaml ---"; grep -E '^(version|appVersion):' helm/centreon/Chart.yaml
+          echo "--- values.yaml image ---"; grep -A 1 '^image:' helm/centreon/values.yaml | head -5
 
-      - name: Add Bitnami repo
-        run: helm repo add bitnami https://charts.bitnami.com/bitnami
+      - name: Add Bitnami repo & resolve dependencies
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm dependency update helm/centreon
 
-      - name: Dependency update
-        run: helm dependency update helm/centreon
+      - name: Lint
+        run: helm lint helm/centreon
 
-      - name: Package chart
+      - name: Package
         run: |
           mkdir -p dist
           helm package helm/centreon -d dist
-          ls dist/
+          ls -la dist/
 
       - name: Log in to ghcr.io
         run: |
@@ -68,5 +89,36 @@ jobs:
 
       - name: Push chart
         run: |
-          helm push dist/centreon-${{ steps.ver.outputs.version }}.tgz \
-            oci://${{ env.REGISTRY }}/${{ env.CHART_OWNER }}/charts
+          v="${{ steps.ver.outputs.version }}"
+          helm push "dist/centreon-${v}.tgz" \
+            "oci://${{ env.REGISTRY }}/${{ env.CHART_OWNER }}/charts"
+          echo "Pushed: oci://${{ env.REGISTRY }}/${{ env.CHART_OWNER }}/charts/centreon:${v}"
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Centreon ${{ steps.ver.outputs.version }}"
+          generate_release_notes: true
+          files: dist/centreon-${{ steps.ver.outputs.version }}.tgz
+          body: |
+            Centreon **${{ steps.ver.outputs.version }}** release.
+
+            ## Container images (ghcr.io)
+            ```
+            ghcr.io/${{ github.repository_owner }}/mariadb:${{ steps.ver.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/centreon-broker-sql:${{ steps.ver.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/centreon-broker-rrd:${{ steps.ver.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/centreon-engine:${{ steps.ver.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/centreon-gorgone:${{ steps.ver.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/centreon-web:${{ steps.ver.outputs.version }}
+            ```
+
+            ## Helm chart
+            ```bash
+            helm install centreon \
+              oci://ghcr.io/${{ github.repository_owner }}/charts/centreon \
+              --version ${{ steps.ver.outputs.version }} \
+              -n centreon --create-namespace
+            ```

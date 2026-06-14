@@ -10,7 +10,7 @@
 image:
   # Base registry + namespace (per-image overrides further below).
   registry: ghcr.io
-  repository: example/centreon
+  repository: slydien
   pullPolicy: IfNotPresent
   # Shared tag default ; per-image overrides supported.
   tag: "24.10"
