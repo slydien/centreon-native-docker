@@ -3,14 +3,14 @@ NAMESPACE       ?= centreon
 TAG             ?= 24.10
 ALMA            ?= 8
 
-IMAGES := mariadb centreon-engine centreon-broker-sql centreon-broker-rrd centreon-gorgone centreon-web
+IMAGES := centreon-engine centreon-broker-sql centreon-broker-rrd centreon-gorgone centreon-web
 
 .PHONY: help build $(addprefix build-,$(IMAGES)) push test-unit test-integration test-e2e \
         compose-up compose-down lint clean
 
 help:
 	@echo "Targets:"
-	@echo "  build             Build all six images"
+	@echo "  build             Build the five Centreon images (MariaDB is consumed from bitnamilegacy)"
 	@echo "  build-<name>      Build a single image (e.g. build-centreon-engine)"
 	@echo "  push              Push all images to \$$REGISTRY"
 	@echo "  lint              hadolint on every Dockerfile"

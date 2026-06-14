@@ -71,7 +71,7 @@ jobs:
           echo "Resolved Centreon version: ${v}"
 
   # ---------------------------------------------------------------------------
-  # 2) Build the six images in parallel
+  # 2) Build the five Centreon images in parallel (MariaDB is consumed from bitnamilegacy)
   # ---------------------------------------------------------------------------
   build:
     name: ${{ matrix.image }}
@@ -81,7 +81,6 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - mariadb
           - centreon-broker-sql
           - centreon-broker-rrd
           - centreon-engine

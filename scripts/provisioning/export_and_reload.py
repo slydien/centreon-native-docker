@@ -4,7 +4,7 @@ Export configuration to the pollers + reload centengine.
 
 Two code paths :
   - via the centreon-web REST API v2 :
-        POST /configuration/monitoring-servers/generate-and-reload
+        GET /configuration/monitoring-servers/{id}/generate-and-reload
   - via Gorgone directly (fallback or test) :
         POST http://gorgone:8085/api/centreon/engine/command  RESTART
 
@@ -33,12 +33,11 @@ def via_web_api(base_url: str, user: str, password: str, poller_id: int, timeout
     token = r.json()["security"]["token"]
     headers = {"X-AUTH-TOKEN": token, "Content-Type": "application/json"}
 
-    # 2) generate-and-reload
+    # 2) generate-and-reload (Centreon 24.10 : GET on the per-poller path)
     print(f"[web-api] generate-and-reload poller {poller_id}")
-    r = httpx.post(
-        f"{base_url}/centreon/api/latest/configuration/monitoring-servers/generate-and-reload",
+    r = httpx.get(
+        f"{base_url}/centreon/api/latest/configuration/monitoring-servers/{poller_id}/generate-and-reload",
         headers=headers,
-        json={"monitoring_server_ids": [poller_id]},
         timeout=timeout,
     )
     r.raise_for_status()

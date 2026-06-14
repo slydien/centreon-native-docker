@@ -41,19 +41,24 @@ volumes:
 services:
 
   mariadb:
-    image: centreon/mariadb:${TAG:-24.10}
+    # Bitnami legacy image — same one consumed by the Helm chart, so the
+    # docker-compose stack mirrors the production setup exactly.
+    image: docker.io/bitnamilegacy/mariadb:11.4.4-debian-12-r0
     platform: linux/amd64
-    build: { context: ./images/mariadb }
     environment:
-      <<: *common-env
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-rootpass}
+      MARIADB_USER:          ${CENTREON_DB_USER:-centreon}
+      MARIADB_PASSWORD:      ${CENTREON_DB_PASS:-centreon}
+      MARIADB_DATABASE:      ${CENTREON_DB_NAME:-centreon}
     networks: [centreon-net]
     ports:
       - "3306:3306"          # published for host-side pytest tests
     volumes:
-      - mariadb-data:/var/lib/mysql
+      - mariadb-data:/bitnami/mariadb
+      - ./config/mariadb/init.sql:/docker-entrypoint-initdb.d/01-create-storage-db.sql:ro
+      - ./config/mariadb/my_custom.cnf:/opt/bitnami/mariadb/conf/my_custom.d/centreon.cnf:ro
     healthcheck:
-      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      test: ["CMD", "/opt/bitnami/scripts/mariadb/healthcheck.sh"]
       interval: 10s
       timeout: 5s
       retries: 10

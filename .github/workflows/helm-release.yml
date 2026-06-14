@@ -107,13 +107,15 @@ jobs:
 
             ## Container images (ghcr.io)
             ```
-            ghcr.io/${{ github.repository_owner }}/mariadb:${{ steps.ver.outputs.version }}
             ghcr.io/${{ github.repository_owner }}/centreon-broker-sql:${{ steps.ver.outputs.version }}
             ghcr.io/${{ github.repository_owner }}/centreon-broker-rrd:${{ steps.ver.outputs.version }}
             ghcr.io/${{ github.repository_owner }}/centreon-engine:${{ steps.ver.outputs.version }}
             ghcr.io/${{ github.repository_owner }}/centreon-gorgone:${{ steps.ver.outputs.version }}
             ghcr.io/${{ github.repository_owner }}/centreon-web:${{ steps.ver.outputs.version }}
             ```
+
+            MariaDB is consumed from `docker.io/bitnamilegacy/mariadb` via the
+            Helm chart dependency — not built nor mirrored from this repo.
 
             ## Helm chart
             ```bash

@@ -12,11 +12,11 @@ The Helm chart depends on the official [Bitnami MariaDB](https://artifacthub.io/
 
 ## Architecture
 
-Six containers, one Pod, shared volumes and PID namespace :
+Five Centreon containers in one Pod, plus MariaDB consumed from
+[`bitnamilegacy/mariadb`](https://hub.docker.com/r/bitnamilegacy/mariadb) :
 
 | Container             | PID 1 process         | Role                                       |
 |-----------------------|-----------------------|--------------------------------------------|
-| `mariadb`             | `mariadbd`            | `centreon` and `centreon_storage` DBs      |
 | `centreon-broker-sql` | `cbd`                 | BBDO ingest → MariaDB (unified_sql)        |
 | `centreon-broker-rrd` | `cbd`                 | RRD files for performance graphs           |
 | `centreon-engine`     | `centengine` + cbmod  | Scheduler + checks                         |
@@ -27,16 +27,19 @@ systemd is replaced by `tini` + foreground processes ; `systemctl reload centeng
 
 ## Container images
 
-All images are published to GitHub Container Registry on every push to `main` and every git tag :
+The five Centreon images are published to GitHub Container Registry on
+every push to `main` and every git tag :
 
 ```
-ghcr.io/slydien/mariadb:24.10.27
 ghcr.io/slydien/centreon-broker-sql:24.10.27
 ghcr.io/slydien/centreon-broker-rrd:24.10.27
 ghcr.io/slydien/centreon-engine:24.10.27
 ghcr.io/slydien/centreon-gorgone:24.10.27
 ghcr.io/slydien/centreon-web:24.10.27
 ```
+
+The MariaDB image is `docker.io/bitnamilegacy/mariadb:11.4.4-debian-12-r0`
+— consumed directly, not mirrored here.
 
 Each image is also tagged `:24.10`, `:24`, `:latest` (highest semver) and
 `:main` / `:sha-<short>` for development builds.
@@ -49,7 +52,7 @@ Images are amd64-only (Centreon does not publish aarch64 binaries upstream).
 
 ```bash
 cp .env.example .env
-make build              # builds the six images
+make build              # builds the five Centreon images
 make compose-up         # docker-compose stack
 make test-integration   # pytest against the running stack
 ```

@@ -10,9 +10,11 @@
 
 ## 1. Build and push the images
 
-Images are built and pushed automatically by the
+The five Centreon images are built and pushed automatically by the
 `.github/workflows/build-images.yml` workflow. They land at
-`ghcr.io/slydien/centreon-*:<tag>` (or `ghcr.io/slydien/mariadb:<tag>` for MariaDB).
+`ghcr.io/slydien/centreon-*:<tag>`. MariaDB is consumed from
+`docker.io/bitnamilegacy/mariadb` (via the Helm chart dependency) and
+is not mirrored here.
 
 For a manual local build :
 
