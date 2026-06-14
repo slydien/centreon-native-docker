@@ -46,7 +46,6 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - mariadb
           - centreon-broker-sql
           - centreon-broker-rrd
           - centreon-engine

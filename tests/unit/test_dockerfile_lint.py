@@ -10,7 +10,6 @@ import pytest
 
 
 IMAGES = [
-    "mariadb",
     "centreon-engine",
     "centreon-broker-sql",
     "centreon-broker-rrd",
@@ -33,9 +32,6 @@ def test_dockerfile_exists(images_dir: Path, img: str):
 @pytest.mark.unit
 @pytest.mark.parametrize("img", IMAGES)
 def test_image_has_entrypoint(images_dir: Path, img: str):
-    # mariadb uses the upstream docker-entrypoint.sh
-    if img == "mariadb":
-        pytest.skip("mariadb uses upstream docker-entrypoint.sh")
     assert (images_dir / img / "entrypoint.sh").is_file()
 
 
@@ -57,9 +53,7 @@ def test_dockerfile_non_root_user(images_dir: Path, img: str):
 @pytest.mark.unit
 @pytest.mark.parametrize("img", IMAGES)
 def test_dockerfile_uses_tini(images_dir: Path, img: str):
-    """tini must be PID 1 (except mariadb which inherits the upstream image)."""
-    if img == "mariadb":
-        pytest.skip("mariadb inherits docker-entrypoint.sh from the upstream image")
+    """tini must be PID 1."""
     text = (images_dir / img / "Dockerfile").read_text()
     assert "tini" in text, f"{img}/Dockerfile must use tini as PID 1"
     assert re.search(r'ENTRYPOINT\s*\[\s*"/usr/bin/tini"', text), \
@@ -77,8 +71,6 @@ def test_dockerfile_has_healthcheck_directive(images_dir: Path, img: str):
 @pytest.mark.unit
 @pytest.mark.parametrize("img", IMAGES)
 def test_entrypoint_uses_strict_mode(images_dir: Path, img: str):
-    if img == "mariadb":
-        pytest.skip("mariadb uses upstream docker-entrypoint.sh")
     text = (images_dir / img / "entrypoint.sh").read_text()
     assert "set -euo pipefail" in text, \
         f"{img}/entrypoint.sh must enable strict mode"
